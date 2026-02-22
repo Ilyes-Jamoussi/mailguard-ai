@@ -4,6 +4,8 @@ An AI-powered email spam detector using a Transformer neural network built entir
 
 No pre-trained models or external ML libraries (HuggingFace, etc.) were used. Every component — multi-head self-attention, positional encoding, layer normalization, feed-forward networks — is implemented manually.
 
+### 🔗 [Live Demo](https://mailguard-ai.streamlit.app)
+
 ## How It Works
 
 An email goes through the following pipeline:
@@ -86,8 +88,8 @@ Actual Spam [   9    282 ]
 │   ├── prepare_data.py        # Dataset download and preparation
 │   └── train.py               # Training loop with evaluation
 ├── models/
-│   ├── transformer_best.pth   # Trained model weights
-│   ├── preprocessor.pkl       # Fitted tokenizer
+│   ├── transformer_best.pth   # Trained model weights (Git LFS)
+│   ├── preprocessor.pkl       # Fitted tokenizer (Git LFS)
 │   ├── config.json            # Model hyperparameters
 │   └── metrics.json           # Training history and test metrics
 ├── notebooks/
@@ -95,16 +97,16 @@ Actual Spam [   9    282 ]
 └── requirements.txt
 ```
 
-## Usage
+## Deployment
 
-### Run the web app
+The app is deployed on [Streamlit Community Cloud](https://streamlit.io/cloud) and connected directly to this GitHub repository. Model weights are stored via Git LFS. Any push to `main` triggers an automatic redeployment.
+
+### Run locally
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
-
-The app loads the trained model locally and classifies emails in real time. No internet connection required for inference.
 
 ### Train the model
 
@@ -116,6 +118,6 @@ The app loads the trained model locally and classifies emails in real time. No i
 ## Tech Stack
 
 - **PyTorch** — tensor operations, autograd, model building
-- **Streamlit** — web interface
+- **Streamlit** — web interface and deployment
 - **scikit-learn** — evaluation metrics (precision, recall, F1, confusion matrix)
 - **Google Colab** — GPU training environment

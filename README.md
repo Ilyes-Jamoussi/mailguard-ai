@@ -1,5 +1,8 @@
 # MailGuard AI
 
+[![CI](https://github.com/Ilyes-Jamoussi/mailguard-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Ilyes-Jamoussi/mailguard-ai/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An email spam detector powered by a Transformer neural network built entirely from scratch in PyTorch. The model reaches **97.0% accuracy** on a held-out test set of real emails.
 
 No pre-trained models or external ML libraries (HuggingFace, etc.) were used. Every component — multi-head self-attention, sinusoidal positional encoding, layer normalization, feed-forward networks, and a padding-aware pooling layer — is implemented manually.

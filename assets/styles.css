@@ -1,0 +1,164 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+.block-container {
+    max-width: 760px;
+    padding-top: 2.5rem;
+}
+
+h1 {
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
+    margin-bottom: 0 !important;
+}
+
+.subtitle {
+    color: #64748b;
+    font-size: 1.05rem;
+    margin-bottom: 2rem;
+}
+
+.stTextArea textarea {
+    border: 2px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    font-size: 0.95rem !important;
+    padding: 1rem !important;
+    transition: border-color 0.2s;
+}
+
+.stTextArea textarea:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+.stButton > button[kind="primary"] {
+    background: #3b82f6 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.6rem 1.5rem !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    transition: background 0.2s;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background: #2563eb !important;
+}
+
+.result-card {
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin: 1.5rem 0 0.5rem 0;
+    text-align: center;
+}
+
+.result-ham {
+    background: #f0f9ff;
+    border: 2px solid #3b82f6;
+    color: #1e40af;
+}
+
+.result-spam {
+    background: #fef2f2;
+    border: 2px solid #ef4444;
+    color: #991b1b;
+}
+
+.result-label {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.result-conf {
+    font-size: 1rem;
+    font-weight: 500;
+    opacity: 0.8;
+}
+
+.prob-section {
+    margin: 1.25rem 0 0.5rem 0;
+}
+
+.prob-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 0.4rem;
+}
+
+.prob-track {
+    width: 100%;
+    height: 12px;
+    background: #eef2f7;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.prob-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+
+.prob-fill-spam {
+    background: #ef4444;
+}
+
+.prob-fill-ham {
+    background: #3b82f6;
+}
+
+.example-btn button {
+    background: #f8fafc !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    color: #334155 !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    text-align: left !important;
+    padding: 0.5rem 0.75rem !important;
+    transition: all 0.15s;
+}
+
+.example-btn button:hover {
+    border-color: #3b82f6 !important;
+    background: #f0f7ff !important;
+    color: #1e40af !important;
+}
+
+.stat-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin-top: 0.2rem;
+}
+
+div[data-testid="stSidebar"] {
+    background: #f8fafc;
+}
+
+div[data-testid="stSidebar"] h2 {
+    font-size: 1.1rem !important;
+    color: #0f172a !important;
+}

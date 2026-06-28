@@ -1,148 +1,234 @@
-"""
-Training script for Transformer spam detector.
+"""Train the Transformer spam classifier and export model artifacts.
+
+Run from the repository root with ``python -m src.train``.
 """
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from sklearn.metrics import classification_report, confusion_matrix
-import numpy as np
+from __future__ import annotations
+
 import json
-import os
+import logging
+import random
 import time
+from dataclasses import asdict
 
-from src.transformer_model import TransformerClassifier
+import numpy as np
+import torch
+from safetensors.torch import load_file, save_file
+from sklearn.metrics import classification_report, confusion_matrix
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
+
+from src.config import (
+    CLASS_NAMES,
+    METRICS_PATH,
+    MODEL_CONFIG_PATH,
+    MODELS_DIR,
+    SEED,
+    VOCAB_PATH,
+    WEIGHTS_PATH,
+    ModelConfig,
+    TrainConfig,
+)
 from src.preprocessing import load_and_preprocess_data
+from src.transformer_model import TransformerClassifier
 
-CLASS_NAMES = ['ham', 'spam']
+logger = logging.getLogger(__name__)
+
+
+def seed_everything(seed: int = SEED) -> None:
+    """Seed Python, NumPy and torch RNGs so a run is reproducible."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def resolve_device() -> torch.device:
+    """Use CUDA when available, otherwise CPU (never hardcode the device)."""
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class EmailDataset(Dataset):
-    def __init__(self, sequences, labels):
-        self.sequences = torch.LongTensor(sequences)
-        self.labels = torch.LongTensor(labels)
+    """Wrap encoded sequences and labels as tensors for a DataLoader."""
 
-    def __len__(self):
+    def __init__(self, sequences: np.ndarray, labels: np.ndarray) -> None:
+        self.sequences = torch.as_tensor(sequences, dtype=torch.long)
+        self.labels = torch.as_tensor(labels, dtype=torch.long)
+
+    def __len__(self) -> int:
         return len(self.sequences)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         return self.sequences[idx], self.labels[idx]
 
 
-def train_model(data_path, epochs=15, batch_size=64, lr=3e-4):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Device: {device}")
+def _train_one_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    grad_clip: float,
+) -> tuple[float, float]:
+    """Run one training epoch; return (mean loss, accuracy %)."""
+    model.train()
+    loss_sum = correct = total = 0.0
+    for sequences, labels in loader:
+        sequences, labels = sequences.to(device), labels.to(device)
+        optimizer.zero_grad()
+        logits = model(sequences)
+        loss = criterion(logits, labels)
+        loss.backward()
+        nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
+        loss_sum += loss.item()
+        correct += (logits.argmax(1) == labels).sum().item()
+        total += labels.size(0)
+    return loss_sum / len(loader), 100.0 * correct / total
 
-    (X_tr, y_tr), (X_val, y_val), (X_te, y_te), preprocessor = load_and_preprocess_data(data_path)
 
-    os.makedirs("models", exist_ok=True)
-    preprocessor.save("models/preprocessor.pkl")
+@torch.no_grad()
+def _evaluate(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+) -> tuple[float, float]:
+    """Compute (mean loss, accuracy %) on a loader without updating weights."""
+    model.eval()
+    loss_sum = correct = total = 0.0
+    for sequences, labels in loader:
+        sequences, labels = sequences.to(device), labels.to(device)
+        logits = model(sequences)
+        loss_sum += criterion(logits, labels).item()
+        correct += (logits.argmax(1) == labels).sum().item()
+        total += labels.size(0)
+    return loss_sum / len(loader), 100.0 * correct / total
 
-    train_loader = DataLoader(EmailDataset(X_tr, y_tr), batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(EmailDataset(X_val, y_val), batch_size=batch_size)
-    test_loader = DataLoader(EmailDataset(X_te, y_te), batch_size=batch_size)
 
-    config = dict(
-        vocab_size=len(preprocessor.word2idx),
-        d_model=256, nhead=8, num_layers=4,
-        num_classes=2, max_len=256, dropout=0.1
+@torch.no_grad()
+def _predict_all(
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (predictions, labels) over a loader."""
+    model.eval()
+    preds: list[np.ndarray] = []
+    labels: list[np.ndarray] = []
+    for sequences, batch_labels in loader:
+        logits = model(sequences.to(device))
+        preds.append(logits.argmax(1).cpu().numpy())
+        labels.append(batch_labels.numpy())
+    return np.concatenate(preds), np.concatenate(labels)
+
+
+def _class_weights(labels: np.ndarray, device: torch.device) -> torch.Tensor:
+    """Inverse-frequency class weights to offset the ham/spam imbalance."""
+    counts = np.bincount(labels.astype(int))
+    weights = torch.tensor(1.0 / counts, dtype=torch.float, device=device)
+    return weights / weights.sum()
+
+
+def train_model(train_config: TrainConfig | None = None) -> dict:
+    """Train the classifier, save artifacts, and return the test metrics."""
+    config = train_config or TrainConfig()
+    seed_everything()
+    device = resolve_device()
+    logger.info("Device: %s", device)
+
+    (x_train, y_train), (x_val, y_val), (x_test, y_test), preprocessor = load_and_preprocess_data(
+        train_config=config
     )
-    model = TransformerClassifier(**config).to(device)
-    with open("models/config.json", "w") as f:
-        json.dump(config, f)
+    logger.info("Train=%d Val=%d Test=%d", len(x_train), len(x_val), len(x_test))
 
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    preprocessor.save(VOCAB_PATH)
+
+    model_config = ModelConfig(vocab_size=len(preprocessor.word2idx))
+    MODEL_CONFIG_PATH.write_text(json.dumps(asdict(model_config)), encoding="utf-8")
+    model = TransformerClassifier.from_config(model_config).to(device)
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"Parameters: {total_params:,}\n")
+    logger.info("Vocabulary=%d | Parameters=%d", model_config.vocab_size, total_params)
 
-    # Class weights to handle imbalance
-    class_counts = np.bincount(y_tr)
-    weights = torch.FloatTensor(1.0 / class_counts).to(device)
-    weights = weights / weights.sum()
-    criterion = nn.CrossEntropyLoss(weight=weights)
+    train_loader = DataLoader(
+        EmailDataset(x_train, y_train), batch_size=config.batch_size, shuffle=True
+    )
+    val_loader = DataLoader(EmailDataset(x_val, y_val), batch_size=config.batch_size)
+    test_loader = DataLoader(EmailDataset(x_test, y_test), batch_size=config.batch_size)
 
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    criterion = nn.CrossEntropyLoss(weight=_class_weights(y_train, device))
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=config.lr, weight_decay=config.weight_decay
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
 
-    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
-    best_val_acc = 0
+    history: dict[str, list[float]] = {
+        "train_loss": [],
+        "train_acc": [],
+        "val_loss": [],
+        "val_acc": [],
+    }
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
     start = time.time()
 
-    for epoch in range(epochs):
-        model.train()
-        t_loss = t_correct = t_total = 0
-        for seqs, labels in train_loader:
-            seqs, labels = seqs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            out = model(seqs)
-            loss = criterion(out, labels)
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            t_loss += loss.item()
-            _, pred = out.max(1)
-            t_total += labels.size(0)
-            t_correct += pred.eq(labels).sum().item()
+    for epoch in range(config.epochs):
+        train_loss, train_acc = _train_one_epoch(
+            model, train_loader, criterion, optimizer, device, config.grad_clip
+        )
         scheduler.step()
+        val_loss, val_acc = _evaluate(model, val_loader, criterion, device)
 
-        model.eval()
-        v_loss = v_correct = v_total = 0
-        with torch.no_grad():
-            for seqs, labels in val_loader:
-                seqs, labels = seqs.to(device), labels.to(device)
-                out = model(seqs)
-                v_loss += criterion(out, labels).item()
-                _, pred = out.max(1)
-                v_total += labels.size(0)
-                v_correct += pred.eq(labels).sum().item()
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+        logger.info(
+            "Epoch %2d/%d | train %.1f%% | val %.1f%% | val_loss %.4f",
+            epoch + 1,
+            config.epochs,
+            train_acc,
+            val_acc,
+            val_loss,
+        )
 
-        ta = 100. * t_correct / t_total
-        va = 100. * v_correct / v_total
-        history["train_loss"].append(t_loss / len(train_loader))
-        history["train_acc"].append(ta)
-        history["val_loss"].append(v_loss / len(val_loader))
-        history["val_acc"].append(va)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            save_file(model.state_dict(), str(WEIGHTS_PATH))
+            logger.info("  saved best model (val_loss %.4f)", val_loss)
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= config.early_stopping_patience:
+                logger.info(
+                    "Early stopping at epoch %d (no val_loss improvement for %d epochs)",
+                    epoch + 1,
+                    config.early_stopping_patience,
+                )
+                break
 
-        print(f"Epoch {epoch+1}/{epochs} | Train: {ta:.1f}% | Val: {va:.1f}% | LR: {scheduler.get_last_lr()[0]:.6f}")
-        if va > best_val_acc:
-            best_val_acc = va
-            torch.save(model.state_dict(), "models/transformer_best.pth")
-            print(f"  → Best model saved ({va:.1f}%)")
+    elapsed_min = (time.time() - start) / 60.0
+    logger.info("Training time: %.1f min", elapsed_min)
 
-    elapsed = time.time() - start
-    print(f"\nTraining time: {elapsed/60:.1f} min")
-
-    # Test evaluation
-    print("\n" + "=" * 60)
-    print("TEST SET EVALUATION")
-    print("=" * 60)
-    model.load_state_dict(torch.load("models/transformer_best.pth", map_location=device))
-    model.eval()
-
-    all_preds, all_labels = [], []
-    with torch.no_grad():
-        for seqs, labels in test_loader:
-            seqs = seqs.to(device)
-            _, pred = model(seqs).max(1)
-            all_preds.extend(pred.cpu().numpy())
-            all_labels.extend(labels.numpy())
-
-    print(classification_report(all_labels, all_preds, target_names=CLASS_NAMES, zero_division=0))
-    print("Confusion Matrix:")
-    print(confusion_matrix(all_labels, all_preds))
-
+    model.load_state_dict(load_file(str(WEIGHTS_PATH)))
+    preds, labels = _predict_all(model, test_loader, device)
+    report = classification_report(
+        labels, preds, target_names=list(CLASS_NAMES), output_dict=True, zero_division=0
+    )
     metrics = {
         "history": history,
-        "test_accuracy": float(np.mean(np.array(all_preds) == np.array(all_labels))),
-        "training_time_min": round(elapsed / 60, 1),
+        "test_accuracy": float(np.mean(preds == labels)),
+        "training_time_min": round(elapsed_min, 1),
         "total_params": total_params,
-        "report": classification_report(all_labels, all_preds, target_names=CLASS_NAMES, output_dict=True, zero_division=0)
+        "report": report,
+        "confusion_matrix": confusion_matrix(labels, preds).tolist(),
     }
-    with open("models/metrics.json", "w") as f:
-        json.dump(metrics, f, indent=2)
-
-    print(f"\n✅ Done! Test accuracy: {metrics['test_accuracy']:.1%}")
+    METRICS_PATH.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    logger.info("Test accuracy: %.4f", metrics["test_accuracy"])
+    return metrics
 
 
 if __name__ == "__main__":
-    train_model("data/processed/spam_data.csv")
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    train_model()

@@ -16,6 +16,11 @@ data/processed/*
 # Models (tracked by Git LFS)
 !models/.gitkeep
 
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
 # Jupyter
 .ipynb_checkpoints/
 
@@ -26,3 +31,6 @@ data/processed/*
 
 # Logs
 *.log
+
+# Local-only dev notes (not part of the public repo)
+CONVENTIONS.md

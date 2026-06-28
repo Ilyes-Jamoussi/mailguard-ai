@@ -1,0 +1,28 @@
+[project]
+name = "mailguard-ai"
+version = "1.0.0"
+description = "Transformer-based email spam detector built from scratch in PyTorch."
+readme = "README.md"
+requires-python = ">=3.11"
+
+# Runtime dependencies are pinned in `requirements.txt` (the manifest Streamlit
+# Cloud installs); dev tooling is pinned in `requirements-dev.txt`. Keeping them
+# there avoids declaring the same dependency in two places.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

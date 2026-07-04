@@ -121,6 +121,15 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+### Run with Docker
+
+```bash
+docker build -t mailguard-ai .
+docker run --rm -p 8501:8501 mailguard-ai
+```
+
+Then open http://localhost:8501.
+
 ### Train the model
 
 On Google Colab (GPU):
